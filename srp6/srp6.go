@@ -53,3 +53,20 @@ func MakeRegistrationData(username, password string) (salt []byte, verifier []by
 
 	return salt, verifier, nil
 }
+
+func CalculateVerifier(username, password string, salt []byte) ([]byte, error) {
+	u := strings.ToUpper(username)
+	p := strings.ToUpper(password)
+
+	h1 := sha1.Sum([]byte(u + ":" + p))
+	h2h := sha1.New()
+	h2h.Write(salt)
+	h2h.Write(h1[:])
+	h2 := h2h.Sum(nil)
+
+	x := leToBI(h2)
+	v := new(big.Int).Exp(srpG, x, srpN)
+	verifier := biToLE(v, 32)
+
+	return verifier, nil
+}
