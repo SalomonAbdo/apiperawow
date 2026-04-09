@@ -1,0 +1,16 @@
+# Binario compilado localmente
+ac-api.exe
+ac-api
+
+# Archivo de secretos (nunca subir al repo)
+.env
+
+# Caché de módulos Go local
+vendor/
+
+# Archivos de IDE / OS
+.idea/
+.vscode/
+*.DS_Store
+Thumbs.db
+

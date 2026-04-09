@@ -15,7 +15,7 @@ func main() {
 	fmt.Println("🚀 Iniciando Backend WoWpera para AzerothCore 3.3.5a...")
 
 	// 1. Cargar variables de entorno desde .env
-	// Asegura que las credenciales de DB y la API_KEY estén disponibles
+	// Asegura que las credenciales de DB estén disponibles
 	err := godotenv.Load()
 	if err != nil {
 		log.Println("⚠️ Aviso: No se encontró el archivo .env, se usarán variables del sistema")
@@ -37,9 +37,9 @@ func main() {
 	// Permite que tu frontend en Next.js (puerto 3000) hable con esta API
 	r.Use(middleware.CORSMiddleware())
 
-	// 5. Definir Grupo de Rutas Protegidas bajo /api
-	// Todas estas rutas requieren la cabecera 'X-API-Key'
-	api := r.Group("/api", middleware.AuthMiddleware())
+	// 5. Definir Grupo de Rutas bajo /api
+	// La autenticación es manejada externamente por WSO2
+	api := r.Group("/api")
 	{
 		// REGISTRO: Creación de cuentas nuevas con SRP6
 		api.POST("/accounts", handlers.CreateAccount(db))
