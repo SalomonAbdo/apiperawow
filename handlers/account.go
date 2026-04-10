@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"ac-api/models"
-	"ac-api/srp6" // Tu paquete personalizado de SRP6
+	"ac-api/srp6"
 	"bytes"
 	"fmt"
 	"net/http"
@@ -116,41 +116,95 @@ func CheckAccountByEmail(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// 4. DASHBOARD: Resumen de estadísticas del jugador
-func GetDashboardSummary(db *gorm.DB) gin.HandlerFunc {
+// GetUserCharacters obtiene la lista real de personajes desde acore_characters
+func GetUserCharacters(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 1. Obtenemos el ID de la cuenta desde la URL (:id)
+		accountID := c.Param("id")
+
+		if accountID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ID de cuenta requerido"})
+			return
+		}
+
+		var characters []models.Character
+
+		// 2. Ejecutamos la consulta filtrando por la columna 'account' (según tu DDL)
+		// Ordenamos por nivel descendente (los más fuertes arriba)
+		result := db.Where("account = ?", accountID).Order("level DESC").Find(&characters)
+
+		// 3. Manejo de errores de base de datos
+		if result.Error != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al recuperar personajes del reino"})
+			return
+		}
+
+		// 4. Retornamos la lista (vacía o con datos)
+		c.JSON(http.StatusOK, characters)
+	}
+}
+
+// GetDashboardSummary recolecta métricas de Auth y Characters simultáneamente
+func GetDashboardSummary(authDB *gorm.DB, charsDB *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountID := c.Param("id")
 
 		var result struct {
-			Status      string
-			Rank        string
-			CharCount   int64
-			TotalOnline string
+			Status      string `json:"status"`
+			Rank        string `json:"rank"`
+			CharCount   int64  `json:"char_count"`
+			TotalOnline string `json:"total_online"`
 		}
 
-		// Rango (GM Level)
-		var gmLevel int
-		db.Table("account_access").Where("id = ?", accountID).Select("gmlevel").Scan(&gmLevel)
-		result.Rank = "Jugador"
-		if gmLevel > 0 {
+		// --- SECCIÓN AUTH (Basado en tu DDL de account_access y account_banned) ---
+
+		// 1. Obtener Rango (GM Level)
+		var gmLevel uint8
+		// Nota: id en account_access es el AccountID según tu DDL
+		err := authDB.Table("account_access").
+			Where("id = ?", accountID).
+			Select("gmlevel").
+			Scan(&gmLevel).Error
+
+		if err != nil || gmLevel == 0 {
+			result.Rank = "Jugador"
+		} else {
+			// Podrías mapear niveles (1: Moderador, 2: GM, 3: Admin)
 			result.Rank = "Staff / GM"
 		}
 
-		// Estatus de Baneo
+		// 2. Verificar Baneo Activo
 		var banCount int64
-		db.Table("account_banned").Where("id = ? AND active = 1", accountID).Count(&banCount)
+		// Según tu DDL: active = 1 significa que el ban está vigente
+		authDB.Table("account_banned").
+			Where("id = ? AND active = 1", accountID).
+			Count(&banCount)
+
 		result.Status = "Activa"
 		if banCount > 0 {
 			result.Status = "Baneada"
 		}
 
-		// Conteo de personajes (Asumiendo que la DB de characters es accesible)
-		// Si usas bases de datos separadas, asegúrate de que el usuario de MySQL tenga permisos en ambas
-		db.Table("characters.characters").Where("account = ?", accountID).Count(&result.CharCount)
+		// --- SECCIÓN CHARACTERS (Basado en tu DDL de characters) ---
 
+		// 3. Contar personajes vinculados a la cuenta
+		charsDB.Table("characters").
+			Where("account = ?", accountID).
+			Count(&result.CharCount)
+
+		// 4. Calcular tiempo total de juego (totaltime está en segundos)
 		var totalSeconds int64
-		db.Table("characters.characters").Where("account = ?", accountID).Select("SUM(totaltime)").Scan(&totalSeconds)
-		result.TotalOnline = fmt.Sprintf("%dh", totalSeconds/3600)
+		charsDB.Table("characters").
+			Where("account = ?", accountID).
+			Select("SUM(totaltime)").
+			Scan(&totalSeconds)
+
+		// Un toque de ingeniería: si totalSeconds es 0, evitamos cálculos
+		if totalSeconds > 0 {
+			result.TotalOnline = fmt.Sprintf("%dh", totalSeconds/3600)
+		} else {
+			result.TotalOnline = "0h"
+		}
 
 		c.JSON(http.StatusOK, result)
 	}
